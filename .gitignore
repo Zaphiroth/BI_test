@@ -1,0 +1,10 @@
+
+example/
+
+\.Rproj\.user/
+
+www/
+
+*.Rproj
+
+examples/
