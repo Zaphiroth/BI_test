@@ -8,3 +8,7 @@ www/
 *.Rproj
 
 examples/
+
+\.RData
+
+\.Rhistory

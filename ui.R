@@ -30,13 +30,13 @@ ui <- dashboardPage(
         column(12, selectInput(inputId = "metric", label = "Metric", choices = c("MAT", "YTD", "RQ", "MTH"), 
                                selected = "MAT")),
         column(12, selectInput(inputId = "ym", label = "Year-Month", choices = "")),
-        column(12, selectInput(inputId = "period", label = "Period", choices = c(1, 2, 3, 4, 5), selected = 1)),
+        column(12, selectInput(inputId = "period", label = "Period", choices = c(12, 24, 36, 48, 60), selected = 12)),
         column(12, selectInput(inputId = "market", label = "Market", choices = "")),
         column(12, selectInput(inputId = "atc2", label = "ATC2", choices = "")),
         column(12, selectInput(inputId = "atc3", label = "ATC3", choices = "")),
         column(12, selectInput(inputId = "measure", label = "Measure", choices = c("RMB", "County Unit", "Price"))),
-        column(12, selectInput(inputId = "index", label = "Index", choices = c("Sales", "MS%", "Growth%", "ΔMS%", "EI"), 
-                               selected = "Sales", multiple = TRUE)),
+        column(12, selectInput(inputId = "index", label = "Index", choices = c("Sales(Mn)", "Share%", "Growth%", "share_delta%", "EI"), 
+                               selected = "Sales(Mn)", multiple = TRUE)),
         column(12, selectInput(inputId = "region", label = "Region", choices = "")),
         column(12, selectInput(inputId = "province", label = "Province", choices = "")),
         column(12, selectInput(inputId = "city", label = "Ciyt", choices = "")),
@@ -66,8 +66,7 @@ ui <- dashboardPage(
             collapsible = FALSE,
             width = 12,
             tags$div(
-              # dataTableOutput("table1")
-              tableOutput("table1")
+              dataTableOutput("table1")
             )
           ),
           box(

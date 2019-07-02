@@ -12,10 +12,14 @@ require(plyr)
 require(data.table)
 library(shiny)
 library(stringi)
+library(stringr)
 library(dplyr)
 library(plotly)
 library(tidyr)
 library(lubridate)
+library(purrr)
+library(readxl)
+library(RcppRoll)
 library(openxlsx)
 library(shinydashboard)
 library(rlang)
@@ -27,6 +31,7 @@ library(shinyWidgets)
 
 ##---- load functions ----
 source("./functions/functions.R", encoding = "UTF-8")
+load("./data/mappingData.RData")
 
 ##---- options ----
 options(shiny.maxRequestSize = 1000 * 1024 ^ 2,
@@ -46,7 +51,8 @@ server <- function(input, output, session) {
       stringsAsFactors = FALSE
     ) %>% 
       setDF() %>% 
-      mutate(Period_Code = gsub("M", "/", Period_Code))
+      mutate(Period_Code = gsub("M", "", Period_Code))
+    colnames(raw) <- tolower(colnames(raw))
     
     raw
   })
@@ -56,20 +62,23 @@ server <- function(input, output, session) {
       return(NULL)
     
     inFile.raw <- input$mapping
-    mapping <- fread(
+    mapping <- read_excel(
       inFile.raw$datapath,
-      na.strings = "NA",
-      stringsAsFactors = FALSE
+      sheet = 1,
+      na = "NA"
     ) %>% 
       setDF()
+    colnames(mapping) <- tolower(colnames(mapping))
     
     mapping
   })
   
+  
+  ##---- input ----
   ## year-month
   ym.list <- reactive({
     data <- raw()
-    ym <- data$Period_Code[!duplicated(data$Period_Code)]
+    ym <- data$period_code[!duplicated(data$period_code)]
     ym <- sort(ym)
     
     ym
@@ -85,8 +94,8 @@ server <- function(input, output, session) {
   ## market
   market.list <- reactive({
     data <- raw()
-    data <- data[data$Period_Code %in% input$ym, ]
-    market <- data$Market[!duplicated(data$Market)]
+    data <- data[data$period_code %in% input$ym, ]
+    market <- data$market[!duplicated(data$market)]
     market <- sort(market)
     
     market
@@ -102,12 +111,12 @@ server <- function(input, output, session) {
   ## atc2
   atc2.list <- reactive({
     data <- raw()
-    data <- data[data$Period_Code %in% input$ym, ]
-    data <- data[data$Market %in% input$market, ]
+    data <- data[data$period_code %in% input$ym, ]
+    data <- data[data$market %in% input$market, ]
     
-    atc2 <- data$ATC2[!duplicated(data$ATC2)]
+    atc2 <- data$atc2[!duplicated(data$atc2)]
     atc2 <- sort(atc2)
-    atc2 <- c("ALL", atc2)
+    atc2 <- c("All", atc2)
     
     atc2
   })
@@ -122,17 +131,17 @@ server <- function(input, output, session) {
   ## atc3
   atc3.list <- reactive({
     data <- raw()
-    data <- data[data$Period_Code %in% input$ym, ]
-    data <- data[data$Market %in% input$market, ]
-    if ("ALL" %in% input$atc2) {
+    data <- data[data$period_code %in% input$ym, ]
+    data <- data[data$market %in% input$market, ]
+    if ("All" %in% input$atc2) {
       data <- data
     } else {
-      data <- data[data$ATC2 %in% input$atc2, ]
+      data <- data[data$atc2 %in% input$atc2, ]
     }
     
-    atc3 <- data$ATC3[!duplicated(data$ATC2)]
+    atc3 <- data$atc3[!duplicated(data$atc2)]
     atc3 <- sort(atc3)
-    atc3 <- c("ALL", atc3)
+    atc3 <- c("All", atc3)
     
     atc3
   })
@@ -147,22 +156,22 @@ server <- function(input, output, session) {
   ## region
   region.list <- reactive({
     data <- raw()
-    data <- data[data$Period_Code %in% input$ym, ]
-    data <- data[data$Market %in% input$market, ]
-    if ("ALL" %in% input$atc2) {
+    data <- data[data$period_code %in% input$ym, ]
+    data <- data[data$market %in% input$market, ]
+    if ("All" %in% input$atc2) {
       data <- data
     } else {
-      data <- data[data$ATC2 %in% input$atc2, ]
+      data <- data[data$atc2 %in% input$atc2, ]
     }
-    if ("ALL" %in% input$atc3) {
+    if ("All" %in% input$atc3) {
       data <- data
     } else {
-      data <- data[data$ATC3 %in% input$atc3, ]
+      data <- data[data$atc3 %in% input$atc3, ]
     }
     
-    region <- data$Region[!duplicated(data$Region)]
+    region <- data$region[!duplicated(data$region)]
     region <- sort(region)
-    region <- c("National", region)
+    region <- c("All", region)
     
     region
   })
@@ -177,27 +186,27 @@ server <- function(input, output, session) {
   ## province
   province.list <- reactive({
     data <- raw()
-    data <- data[data$Period_Code %in% input$ym, ]
-    data <- data[data$Market %in% input$market, ]
-    if ("ALL" %in% input$atc2) {
+    data <- data[data$period_code %in% input$ym, ]
+    data <- data[data$market %in% input$market, ]
+    if ("All" %in% input$atc2) {
       data <- data
     } else {
-      data <- data[data$ATC2 %in% input$atc2, ]
+      data <- data[data$atc2 %in% input$atc2, ]
     }
-    if ("ALL" %in% input$atc3) {
+    if ("All" %in% input$atc3) {
       data <- data
     } else {
-      data <- data[data$ATC3 %in% input$atc3, ]
+      data <- data[data$atc3 %in% input$atc3, ]
     }
-    if ("National" %in% input$region) {
+    if ("All" %in% input$region) {
       data <- data
     } else {
-      data <- data[data$Region %in% input$region, ]
+      data <- data[data$region %in% input$region, ]
     }
     
-    province <- data$Province[!duplicated(data$Province)]
+    province <- data$province[!duplicated(data$province)]
     province <- sort(province)
-    province <- c("National", province)
+    province <- c("All", province)
     
     province
   })
@@ -212,32 +221,32 @@ server <- function(input, output, session) {
   ## city
   city.list <- reactive({
     data <- raw()
-    data <- data[data$Period_Code %in% input$ym, ]
-    data <- data[data$Market %in% input$market, ]
-    if ("ALL" %in% input$atc2) {
+    data <- data[data$period_code %in% input$ym, ]
+    data <- data[data$market %in% input$market, ]
+    if ("All" %in% input$atc2) {
       data <- data
     } else {
-      data <- data[data$ATC2 %in% input$atc2, ]
+      data <- data[data$atc2 %in% input$atc2, ]
     }
-    if ("ALL" %in% input$atc3) {
+    if ("All" %in% input$atc3) {
       data <- data
     } else {
-      data <- data[data$ATC3 %in% input$atc3, ]
+      data <- data[data$atc3 %in% input$atc3, ]
     }
-    if ("National" %in% input$region) {
+    if ("All" %in% input$region) {
       data <- data
     } else {
-      data <- data[data$Region %in% input$region, ]
+      data <- data[data$region %in% input$region, ]
     }
-    if ("National" %in% input$province) {
+    if ("All" %in% input$province) {
       data <- data
     } else {
-      data <- data[data$Province %in% input$province, ]
+      data <- data[data$province %in% input$province, ]
     }
     
-    city <- data$City[!duplicated(data$City)]
+    city <- data$city[!duplicated(data$city)]
     city <- sort(city)
-    city <- c("National", city)
+    city <- c("All", city)
     
     city
   })
@@ -252,37 +261,37 @@ server <- function(input, output, session) {
   ## channel
   channel.list <- reactive({
     data <- raw()
-    data <- data[data$Period_Code %in% input$ym, ]
-    data <- data[data$Market %in% input$market, ]
-    if ("ALL" %in% input$atc2) {
+    data <- data[data$period_code %in% input$ym, ]
+    data <- data[data$market %in% input$market, ]
+    if ("All" %in% input$atc2) {
       data <- data
     } else {
-      data <- data[data$ATC2 %in% input$atc2, ]
+      data <- data[data$atc2 %in% input$atc2, ]
     }
-    if ("ALL" %in% input$atc3) {
+    if ("All" %in% input$atc3) {
       data <- data
     } else {
-      data <- data[data$ATC3 %in% input$atc3, ]
+      data <- data[data$atc3 %in% input$atc3, ]
     }
-    if ("National" %in% input$region) {
+    if ("All" %in% input$region) {
       data <- data
     } else {
-      data <- data[data$Region %in% input$region, ]
+      data <- data[data$region %in% input$region, ]
     }
-    if ("National" %in% input$province) {
+    if ("All" %in% input$province) {
       data <- data
     } else {
-      data <- data[data$Province %in% input$province, ]
+      data <- data[data$province %in% input$province, ]
     }
-    if ("National" %in% input$city) {
+    if ("All" %in% input$city) {
       data <- data
     } else {
-      data <- data[data$City %in% input$city, ]
+      data <- data[data$city %in% input$city, ]
     }
     
-    channel <- data$Channel[!duplicated(data$Channel)]
+    channel <- data$channel[!duplicated(data$channel)]
     channel <- sort(channel)
-    channel <- c("National", channel)
+    channel <- c("All", channel)
     
     channel
   })
@@ -297,42 +306,42 @@ server <- function(input, output, session) {
   ## molecule
   molecule.list <- reactive({
     data <- raw()
-    data <- data[data$Period_Code %in% input$ym, ]
-    data <- data[data$Market %in% input$market, ]
-    if ("ALL" %in% input$atc2) {
+    data <- data[data$period_code %in% input$ym, ]
+    data <- data[data$market %in% input$market, ]
+    if ("All" %in% input$atc2) {
       data <- data
     } else {
-      data <- data[data$ATC2 %in% input$atc2, ]
+      data <- data[data$atc2 %in% input$atc2, ]
     }
-    if ("ALL" %in% input$atc3) {
+    if ("All" %in% input$atc3) {
       data <- data
     } else {
-      data <- data[data$ATC3 %in% input$atc3, ]
+      data <- data[data$atc3 %in% input$atc3, ]
     }
-    if ("National" %in% input$region) {
+    if ("All" %in% input$region) {
       data <- data
     } else {
-      data <- data[data$Region %in% input$region, ]
+      data <- data[data$region %in% input$region, ]
     }
-    if ("National" %in% input$province) {
+    if ("All" %in% input$province) {
       data <- data
     } else {
-      data <- data[data$Province %in% input$province, ]
+      data <- data[data$province %in% input$province, ]
     }
-    if ("National" %in% input$city) {
+    if ("All" %in% input$city) {
       data <- data
     } else {
-      data <- data[data$City %in% input$city, ]
+      data <- data[data$city %in% input$city, ]
     }
-    if ("National" %in% input$channel) {
+    if ("All" %in% input$channel) {
       data <- data
     } else {
-      data <- data[data$Channel %in% input$channel, ]
+      data <- data[data$channel %in% input$channel, ]
     }
     
-    molecule <- data$`Molecule_CN`[!duplicated(data$`Molecule_CN`)]
+    molecule <- data$molecule_cn[!duplicated(data$molecule_cn)]
     molecule <- sort(molecule)
-    molecule <- c("National", molecule)
+    molecule <- c("All", molecule)
     
     molecule
   })
@@ -344,45 +353,434 @@ server <- function(input, output, session) {
                       selected = molecule.list()[1])
   })
   
-  ##---- by brand ----
-  brandData <- reactive({
+  ##---- by group ----
+  groupData <- reactive({
+    if (is.null(raw()) | is.null(mapping()))
+      return(NULL)
+    
     data <- work_out(
       data = raw(),
-      input_metric = input$period,
+      mapping_data = mapping(),
+      input_metric = input$metric,
       current_time_point = input$ym,
-      input_period = 12,
+      input_period = as.numeric(input$period),
       input_market = input$market,
-      input_tc_group = input$tc,
+      input_atc2 = input$atc2,
+      input_atc3 = input$atc3,
       input_measure = input$measure,
-      input_index = input$index,
       input_region = input$region,
       input_province = input$province,
       input_city = input$city,
       input_channel = input$channel,
-      measure_list = input$measure,
-      output_type = "brand group"
+      input_molecule = input$molecule,
+      output_type = "by group",
+      mapping_table_list = en_cn
     )
     
+    data
   })
   
-  ##---- table1 ----
-  
-  
-  
-  
-  
-  
-  output$table1 <- renderTable({
+  ## table1
+  table1 <- reactive({
+    if (is.null(groupData()))
+      return(NULL)
     
+    data <- groupData() %>% 
+      filter(date == input$ym) %>% 
+      select(`Display Name En`, `Display Name Cn`, `Sales(Mn)`, `Growth%`, `Share%`, `share_delta%`, `EI`)
+    
+    table1 <- datatable(
+      data
+    )
+    
+    table1
+  })
+  
+  output$table1 <- renderDataTable({
+    table1()
   })
   
   
-  ##---- plot1 ----
+  ## plot1
   plot1 <- reactive({
+    if (is.null(groupData()))
+      return(NULL)
     
+    period_date <- sort(unique(substr(gsub("-", "", ymd(paste0(input$ym, "01")) - months(0:(as.numeric(input$period) - 1))), 1, 6)))
+    
+    data <- groupData() %>% 
+      filter(date == period_date, `Display Name En` != "Market") %>% 
+      select(date, `Display Name En`, input$index) %>% 
+      arrange(`Display Name En`, date)
+    colnames(data) <- c("date", "key", "value")
+    
+    key <- unique(data$key)
+
+    plot1 <- plot_ly(hoverinfo = "name + x + text")
+
+    for (i in key) {
+      plot1 <- plot1 %>%
+        add_trace(x = data$date[data$key == i],
+                  y = data$value[data$key == i],
+                  type = "scatter",
+                  mode = "lines",
+                  name = i)
+    }
+    
+    plot1
+  })
+  
+  output$plot1 <- renderPlotly({
+    plot1()
+  })
+  
+  ## plot2
+  plot2 <- reactive({
+    if (is.null(groupData()))
+      return(NULL)
+    
+    period_date <- sort(unique(substr(gsub("-", "", ymd(paste0(input$ym, "01")) - months(0:(as.numeric(input$period) - 1))), 1, 6)))
+    
+    data <- groupData() %>% 
+      filter(date == period_date, `Display Name En` != "Market") %>% 
+      select(date, `Display Name En`, input$index) %>% 
+      arrange(`Display Name En`, date)
+    colnames(data) <- c("date", "key", "value")
+    
+    key <- unique(data$key)
+    
+    plot2 <- plot_ly(hoverinfo = "name + x + text")
+    
+    for (i in key) {
+      plot2 <- plot2 %>% 
+        add_bars(x = data$date[data$key == i],
+                 y = data$value[data$key == i],
+                 type = "bar",
+                 text = data$value[data$key == i],
+                 textposition = "inside",
+                 name = i)
+    }
+    
+    plot2 <- plot2 %>%
+      layout(barmode = "stack")
+    
+    plot2
+  })
+  
+  output$plot2 <- renderPlotly({
+    plot2()
+  })
+  
+  ## table2
+  table2 <- reactive({
+    if (is.null(groupData()))
+      return(NULL)
+    
+    data <- groupData() %>% 
+      melt(id.vars = c("date", "Display Name En", "Display Name Cn"),
+           measure.vars = c("Sales(Mn)", "Growth%", "Share%", "share_delta%", "EI"),
+           variable.name = "Index",
+           value.name = "value") %>% 
+      dcast(`Display Name En` + `Display Name Cn` + `Index` ~ `date`) %>% 
+      arrange(Index, `Display Name Cn`)
+    
+    table2 <- datatable(
+      data
+    )
+    
+    table2
+  })
+  
+  output$table2 <- renderDataTable({
+    table2()
+  })
+  
+  ##---- by molecule ----
+  moleculeData <- reactive({
+    if (is.null(raw()) | is.null(mapping()))
+      return(NULL)
+    
+    data <- work_out(
+      data = raw(),
+      mapping_data = mapping(),
+      input_metric = input$metric,
+      current_time_point = input$ym,
+      input_period = as.numeric(input$period),
+      input_market = input$market,
+      input_atc2 = input$atc2,
+      input_atc3 = input$atc3,
+      input_measure = input$measure,
+      input_region = input$region,
+      input_province = input$province,
+      input_city = input$city,
+      input_channel = input$channel,
+      input_molecule = input$molecule,
+      output_type = "by molecule",
+      mapping_table_list = en_cn
+    )
+    
+    data
+  })
+  
+  ## table3
+  table3 <- reactive({
+    if (is.null(moleculeData()))
+      return(NULL)
+    
+    data <- moleculeData() %>% 
+      filter(date == input$ym) %>% 
+      select(`Molecule En`, `Molecule Cn`, `Display Name1 En`, `Display Name1 Cn`, 
+             `Sales(Mn)`, `Growth%`, `Share%`, `share_delta%`, `EI`)
+    
+    table3 <- datatable(
+      data
+    )
+    
+    table3
+  })
+  
+  output$table3 <- renderDataTable({
+    table3()
   })
   
   
+  ## plot3
+  plot3 <- reactive({
+    if (is.null(moleculeData()))
+      return(NULL)
+    
+    period_date <- sort(unique(substr(gsub("-", "", ymd(paste0(input$ym, "01")) - months(0:(as.numeric(input$period) - 1))), 1, 6)))
+    
+    data <- moleculeData() %>% 
+      filter(date == period_date, `Molecule En` != "Total") %>% 
+      select(date, `Molecule En`, input$index) %>% 
+      arrange(`Molecule En`, date)
+    colnames(data) <- c("date", "key", "value")
+    
+    key <- unique(data$key)
+    
+    plot3 <- plot_ly(hoverinfo = "name + x + text")
+    
+    for (i in key) {
+      plot3 <- plot3 %>%
+        add_trace(x = data$date[data$key == i],
+                  y = data$value[data$key == i],
+                  type = "scatter",
+                  mode = "lines",
+                  name = i)
+    }
+    
+    plot3
+  })
+  
+  output$plot3 <- renderPlotly({
+    plot3()
+  })
+  
+  ## plot4
+  plot4 <- reactive({
+    if (is.null(moleculeData()))
+      return(NULL)
+    
+    period_date <- sort(unique(substr(gsub("-", "", ymd(paste0(input$ym, "01")) - months(0:(as.numeric(input$period) - 1))), 1, 6)))
+    
+    data <- moleculeData() %>% 
+      filter(date == period_date, `Molecule En` != "Market") %>% 
+      select(date, `Molecule En`, input$index) %>% 
+      arrange(`Molecule En`, date)
+    colnames(data) <- c("date", "key", "value")
+    
+    key <- unique(data$key)
+    
+    plot4 <- plot_ly(hoverinfo = "name + x + text")
+    
+    for (i in key) {
+      plot4 <- plot4 %>% 
+        add_bars(x = data$date[data$key == i],
+                 y = data$value[data$key == i],
+                 type = "bar",
+                 text = data$value[data$key == i],
+                 textposition = "inside",
+                 name = i)
+    }
+    
+    plot4 <- plot4 %>%
+      layout(barmode = "stack")
+    
+    plot4
+  })
+  
+  output$plot4 <- renderPlotly({
+    plot4()
+  })
+  
+  ## table4
+  table4 <- reactive({
+    if (is.null(moleculeData()))
+      return(NULL)
+    
+    data <- moleculeData() %>% 
+      melt(id.vars = c("date", "Molecule En", "Molecule Cn"),
+           measure.vars = c("Sales(Mn)", "Growth%", "Share%", "share_delta%", "EI"),
+           variable.name = "Index",
+           value.name = "value") %>% 
+      dcast(`Molecule En` + `Molecule Cn` + `Index` ~ `date`) %>% 
+      arrange(Index, `Molecule Cn`)
+    
+    table4 <- datatable(
+      data
+    )
+    
+    table4
+  })
+  
+  output$table4 <- renderDataTable({
+    table4()
+  })
+  
+  ##---- by brand ----
+  brandData <- reactive({
+    if (is.null(raw()) | is.null(mapping()))
+      return(NULL)
+    
+    data <- work_out(
+      data = raw(),
+      mapping_data = mapping(),
+      input_metric = input$metric,
+      current_time_point = input$ym,
+      input_period = as.numeric(input$period),
+      input_market = input$market,
+      input_atc2 = input$atc2,
+      input_atc3 = input$atc3,
+      input_measure = input$measure,
+      input_region = input$region,
+      input_province = input$province,
+      input_city = input$city,
+      input_channel = input$channel,
+      input_molecule = input$molecule,
+      output_type = "by brand",
+      mapping_table_list = en_cn
+    )
+    
+    data
+  })
+  
+  ## table5
+  table5 <- reactive({
+    if (is.null(brandData()))
+      return(NULL)
+    
+    data <- brandData() %>% 
+      filter(date == input$ym) %>% 
+      select(`Brand En`, `Brand Cn`, `Manufacture En`, `Manufacture Cn`, `Display Name1 En`, `Display Name1 Cn`, 
+             `Display Name2 En`, `Display Name2 Cn`, `Display Name3 En`, `Display Name3 Cn`, 
+             `Sales(Mn)`, `Growth%`, `Share%`, `share_delta%`, `EI`)
+    
+    table5 <- datatable(
+      data
+    )
+    
+    table5
+  })
+  
+  output$table5 <- renderDataTable({
+    table5()
+  })
+  
+  
+  ## plot5
+  plot5 <- reactive({
+    if (is.null(brandData()))
+      return(NULL)
+    
+    period_date <- sort(unique(substr(gsub("-", "", ymd(paste0(input$ym, "01")) - months(0:(as.numeric(input$period) - 1))), 1, 6)))
+    
+    data <- brandData() %>% 
+      filter(date == period_date, `Brand En` != "Total") %>% 
+      select(date, `Brand En`, input$index) %>% 
+      arrange(`Brand En`, date)
+    colnames(data) <- c("date", "key", "value")
+    
+    key <- unique(data$key)
+    
+    plot5 <- plot_ly(hoverinfo = "name + x + text")
+    
+    for (i in key) {
+      plot5 <- plot5 %>%
+        add_trace(x = data$date[data$key == i],
+                  y = data$value[data$key == i],
+                  type = "scatter",
+                  mode = "lines",
+                  name = i)
+    }
+    
+    plot5
+  })
+  
+  output$plot5 <- renderPlotly({
+    plot5()
+  })
+  
+  ## plot6
+  plot6 <- reactive({
+    if (is.null(brandData()))
+      return(NULL)
+    
+    period_date <- sort(unique(substr(gsub("-", "", ymd(paste0(input$ym, "01")) - months(0:(as.numeric(input$period) - 1))), 1, 6)))
+    
+    data <- brandData() %>% 
+      filter(date == period_date, `Brand En` != "Total") %>% 
+      select(date, `Brand En`, input$index) %>% 
+      arrange(`Brand En`, date)
+    colnames(data) <- c("date", "key", "value")
+    
+    key <- unique(data$key)
+    
+    plot6 <- plot_ly(hoverinfo = "name + x + text")
+    
+    for (i in key) {
+      plot6 <- plot6 %>% 
+        add_bars(x = data$date[data$key == i],
+                 y = data$value[data$key == i],
+                 type = "bar",
+                 text = data$value[data$key == i],
+                 textposition = "inside",
+                 name = i)
+    }
+    
+    plot6 <- plot6 %>%
+      layout(barmode = "stack")
+    
+    plot6
+  })
+  
+  output$plot6 <- renderPlotly({
+    plot6()
+  })
+  
+  ## table6
+  table6 <- reactive({
+    if (is.null(brandData()))
+      return(NULL)
+    
+    data <- brandData() %>% 
+      melt(id.vars = c("date", "Brand En", "Brand Cn"),
+           measure.vars = c("Sales(Mn)", "Growth%", "Share%", "share_delta%", "EI"),
+           variable.name = "Index",
+           value.name = "value") %>% 
+      dcast(`Brand En` + `Brand Cn` + `Index` ~ `date`) %>% 
+      arrange(Index)
+    
+    table6 <- datatable(
+      data
+    )
+    
+    table6
+  })
+  
+  output$table6 <- renderDataTable({
+    table6()
+  })
   
 }
 
