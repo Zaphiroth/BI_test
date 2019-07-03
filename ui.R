@@ -35,15 +35,18 @@ ui <- dashboardPage(
         column(12, selectInput(inputId = "atc2", label = "ATC2", choices = "")),
         column(12, selectInput(inputId = "atc3", label = "ATC3", choices = "")),
         column(12, selectInput(inputId = "measure", label = "Measure", choices = c("RMB", "County Unit", "Price"))),
-        column(12, selectInput(inputId = "index", label = "Index", choices = c("Sales(Mn)", "Share%", "Growth%", "share_delta%", "EI"), 
-                               selected = "Sales(Mn)", multiple = TRUE)),
+        conditionalPanel(
+          condition = "input.measure != 'Price'",
+          column(12, selectInput(inputId = "index", label = "Index", choices = c("Sales(Mn)", "Share%", "Growth%", "share_delta%", "EI"), 
+                                 selected = "Sales(Mn)", multiple = TRUE))
+        ),
         column(12, selectInput(inputId = "region", label = "Region", choices = "")),
         column(12, selectInput(inputId = "province", label = "Province", choices = "")),
         column(12, selectInput(inputId = "city", label = "Ciyt", choices = "")),
         column(12, selectInput(inputId = "channel", label = "Channel", choices = "")),
-        column(12, selectInput(inputId = "molecule", label = "Molecule", choices = "", multiple = TRUE)),
+        column(12, selectInput(inputId = "molecule", label = "Molecule", choices = "", selected = NULL, multiple = TRUE)),
         column(12, actionButton(inputId = "go", label = "Go", width = "200px")),
-        tags$div(downloadButton(outputId = "download", label = "Download", style = "width:200px"),
+        tags$div(downloadButton(outputId = "download", label = "Download", style = "width:200px; color:#000;"),
                  style = "display:inline-block; width:100%; text-align:center;")
       )
     )
@@ -66,7 +69,8 @@ ui <- dashboardPage(
             collapsible = FALSE,
             width = 12,
             tags$div(
-              dataTableOutput("table1")
+              dataTableOutput("table1"),
+              style = "overflow-x:scroll;"
             )
           ),
           box(
@@ -96,7 +100,8 @@ ui <- dashboardPage(
             collapsible = FALSE,
             width = 12,
             tags$div(
-              dataTableOutput("table2")
+              dataTableOutput("table2"),
+              style = "overflow-x:scroll;"
             )
           )
         )
@@ -114,7 +119,8 @@ ui <- dashboardPage(
             collapsible = FALSE,
             width = 12,
             tags$div(
-              dataTableOutput("table3")
+              dataTableOutput("table3"),
+              style = "overflow-x:scroll;"
             )
           ),
           box(
@@ -144,7 +150,8 @@ ui <- dashboardPage(
             collapsible = FALSE,
             width = 12,
             tags$div(
-              dataTableOutput("table4")
+              dataTableOutput("table4"),
+              style = "overflow-x:scroll;"
             )
           )
         )
@@ -162,7 +169,8 @@ ui <- dashboardPage(
             collapsible = FALSE,
             width = 12,
             tags$div(
-              dataTableOutput("table5")
+              dataTableOutput("table5"),
+              style = "overflow-x:scroll;"
             )
           ),
           box(
@@ -192,7 +200,8 @@ ui <- dashboardPage(
             collapsible = FALSE,
             width = 12,
             tags$div(
-              dataTableOutput("table6")
+              dataTableOutput("table6"),
+              style = "overflow-x:scroll;"
             )
           )
         )

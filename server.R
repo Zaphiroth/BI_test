@@ -79,7 +79,7 @@ server <- function(input, output, session) {
   ym.list <- reactive({
     data <- raw()
     ym <- data$period_code[!duplicated(data$period_code)]
-    ym <- sort(ym)
+    ym <- sort(ym, decreasing = TRUE)
     
     ym
   })
@@ -354,8 +354,8 @@ server <- function(input, output, session) {
   })
   
   ##---- by group ----
-  groupData <- reactive({
-    if (is.null(raw()) | is.null(mapping()))
+  groupData <- eventReactive(input$go, {
+    if (is.null(raw()) | is.null(mapping()) | is.null(input$molecule))
       return(NULL)
     
     data <- work_out(
@@ -382,7 +382,7 @@ server <- function(input, output, session) {
   
   ## table1
   table1 <- reactive({
-    if (is.null(groupData()))
+    if (is.null(groupData()) | input$measure == "Price")
       return(NULL)
     
     data <- groupData() %>% 
@@ -390,33 +390,68 @@ server <- function(input, output, session) {
       select(`Display Name En`, `Display Name Cn`, `Sales(Mn)`, `Growth%`, `Share%`, `share_delta%`, `EI`)
     
     table1 <- datatable(
-      data
+      data,
+      rownames = FALSE,
+      extensions = c("Buttons"),
+      options = list(
+        autoWidth = TRUE,
+        dom = "<'bottom'>Bfrtpl",
+        paging = TRUE,
+        scrollX = FALSE,
+        buttons = I("colvis"),
+        columnDefs = list(
+          list(
+            # width = "200px",
+            className = "dt-center",
+            targets = "_all"
+          ),
+          list(
+            visible = FALSE,
+            targets = c(1)
+          )
+        ),
+        initComplete = JS(
+          "function(settings, json) {",
+          "$(this.api().table().header()).css({'background-color': '#000', 'color': '#fff'});",
+          "}"
+        )
+      )
     )
     
-    table1
+    return(list(data = data,
+                table = table1))
   })
   
   output$table1 <- renderDataTable({
-    table1()
+    table1()$table
   })
   
   
   ## plot1
   plot1 <- reactive({
-    if (is.null(groupData()))
+    if (is.null(groupData()) | (input$measure != "Price" & is.null(input$index)))
       return(NULL)
     
     period_date <- sort(unique(substr(gsub("-", "", ymd(paste0(input$ym, "01")) - months(0:(as.numeric(input$period) - 1))), 1, 6)))
     
-    data <- groupData() %>% 
-      filter(date == period_date, `Display Name En` != "Market") %>% 
-      select(date, `Display Name En`, input$index) %>% 
-      arrange(`Display Name En`, date)
+    if (input$measure == "Price") {
+      data <- groupData() %>% 
+        filter(date == period_date) %>% 
+        select(date, `Display Name`, "price") %>% 
+        arrange(`Display Name`, date)
+      
+    } else {
+      data <- groupData() %>% 
+        filter(date == period_date, `Display Name En` != "Market") %>% 
+        select(date, `Display Name En`, `Sales(Mn)`) %>% 
+        arrange(`Display Name En`, date)
+    }
+    
     colnames(data) <- c("date", "key", "value")
     
     key <- unique(data$key)
 
-    plot1 <- plot_ly(hoverinfo = "name + x + text")
+    plot1 <- plot_ly(hoverinfo = "name + x + y")
 
     for (i in key) {
       plot1 <- plot1 %>%
@@ -436,22 +471,46 @@ server <- function(input, output, session) {
   
   ## plot2
   plot2 <- reactive({
-    if (is.null(groupData()))
+    if (is.null(groupData()) | input$measure == "Price" | (input$measure != "Price" & is.null(input$index)))
       return(NULL)
     
     period_date <- sort(unique(substr(gsub("-", "", ymd(paste0(input$ym, "01")) - months(0:(as.numeric(input$period) - 1))), 1, 6)))
     
     data <- groupData() %>% 
       filter(date == period_date, `Display Name En` != "Market") %>% 
-      select(date, `Display Name En`, input$index) %>% 
+      select(date, `Display Name En`, `Sales(Mn)`) %>% 
+      mutate(`Display Name En` = as.vector(`Display Name En`)) %>% 
       arrange(`Display Name En`, date)
     colnames(data) <- c("date", "key", "value")
     
-    key <- unique(data$key)
+    data1 <- data %>% 
+      filter(date == input$ym) %>% 
+      arrange(-value) %>% 
+      filter(row_number() <= 10)
     
-    plot2 <- plot_ly(hoverinfo = "name + x + text")
+    if (length(data1$key) <= 10) {
+      key10 <- data1$key
+    } else {
+      key10 <- c(data1$key, "others")
+    }
     
-    for (i in key) {
+    data2 <- data.frame(key = key10) %>% 
+      mutate(no = row_number())
+    
+    data <- data %>% 
+      mutate(key = ifelse(key %in% key10,
+                          key,
+                          "others")) %>% 
+      group_by(key, date) %>% 
+      summarise(value = sum(value)) %>% 
+      ungroup() %>% 
+      left_join(data2, by = "key") %>% 
+      arrange(no, date) %>% 
+      select(date, key, value)
+    
+    plot2 <- plot_ly(hoverinfo = "name + x + y")
+    
+    for (i in key10) {
       plot2 <- plot2 %>% 
         add_bars(x = data$date[data$key == i],
                  y = data$value[data$key == i],
@@ -473,7 +532,7 @@ server <- function(input, output, session) {
   
   ## table2
   table2 <- reactive({
-    if (is.null(groupData()))
+    if (is.null(groupData()) | input$measure == "Price" | is.null(input$index))
       return(NULL)
     
     data <- groupData() %>% 
@@ -482,22 +541,49 @@ server <- function(input, output, session) {
            variable.name = "Index",
            value.name = "value") %>% 
       dcast(`Display Name En` + `Display Name Cn` + `Index` ~ `date`) %>% 
+      filter(Index %in% input$index) %>% 
       arrange(Index, `Display Name Cn`)
     
     table2 <- datatable(
-      data
+      data,
+      rownames = FALSE,
+      extensions = c("Buttons"),
+      options = list(
+        autoWidth = TRUE,
+        dom = "<'bottom'>Bfrtpl",
+        paging = TRUE,
+        scrollX = FALSE,
+        buttons = I("colvis"),
+        columnDefs = list(
+          list(
+            # width = "200px",
+            className = "dt-center",
+            targets = "_all"
+          ),
+          list(
+            visible = FALSE,
+            targets = c(1)
+          )
+        ),
+        initComplete = JS(
+          "function(settings, json) {",
+          "$(this.api().table().header()).css({'background-color': '#000', 'color': '#fff'});",
+          "}"
+        )
+      )
     )
     
-    table2
+    return(list(data = data,
+                table = table2))
   })
   
   output$table2 <- renderDataTable({
-    table2()
+    table2()$table
   })
   
   ##---- by molecule ----
-  moleculeData <- reactive({
-    if (is.null(raw()) | is.null(mapping()))
+  moleculeData <- eventReactive(input$go, {
+    if (is.null(raw()) | is.null(mapping()) | is.null(input$molecule))
       return(NULL)
     
     data <- work_out(
@@ -524,7 +610,7 @@ server <- function(input, output, session) {
   
   ## table3
   table3 <- reactive({
-    if (is.null(moleculeData()))
+    if (is.null(moleculeData()) | input$measure == "Price")
       return(NULL)
     
     data <- moleculeData() %>% 
@@ -533,35 +619,77 @@ server <- function(input, output, session) {
              `Sales(Mn)`, `Growth%`, `Share%`, `share_delta%`, `EI`)
     
     table3 <- datatable(
-      data
+      data,
+      rownames = FALSE,
+      extensions = c("Buttons"),
+      options = list(
+        autoWidth = TRUE,
+        dom = "<'bottom'>Bfrtpl",
+        paging = TRUE,
+        scrollX = FALSE,
+        buttons = I("colvis"),
+        columnDefs = list(
+          list(
+            # width = "200px",
+            className = "dt-center",
+            targets = "_all"
+          ),
+          list(
+            visible = FALSE,
+            targets = c(1, 3)
+          )
+        ),
+        initComplete = JS(
+          "function(settings, json) {",
+          "$(this.api().table().header()).css({'background-color': '#000', 'color': '#fff'});",
+          "}"
+        )
+      )
     )
     
-    table3
+    return(list(data = data,
+                table = table3))
   })
   
   output$table3 <- renderDataTable({
-    table3()
+    table3()$table
   })
   
   
   ## plot3
   plot3 <- reactive({
-    if (is.null(moleculeData()))
+    if (is.null(moleculeData()) | (input$measure != "Price" & is.null(input$index)))
       return(NULL)
     
     period_date <- sort(unique(substr(gsub("-", "", ymd(paste0(input$ym, "01")) - months(0:(as.numeric(input$period) - 1))), 1, 6)))
     
-    data <- moleculeData() %>% 
-      filter(date == period_date, `Molecule En` != "Total") %>% 
-      select(date, `Molecule En`, input$index) %>% 
-      arrange(`Molecule En`, date)
+    if (input$measure == "Price") {
+      data <- moleculeData() %>% 
+        filter(date == period_date) %>% 
+        select(date, `Display Name`, "price")
+      
+    } else {
+      data <- moleculeData() %>% 
+        filter(date == period_date, `Molecule En` != "Total") %>% 
+        select(date, `Molecule En`, `Sales(Mn)`)
+    }
+    
     colnames(data) <- c("date", "key", "value")
     
-    key <- unique(data$key)
+    data1 <- data %>% 
+      filter(date == input$ym) %>% 
+      arrange(-value) %>% 
+      filter(row_number() <= 10)
     
-    plot3 <- plot_ly(hoverinfo = "name + x + text")
+    key10 <- unique(data1$key)
     
-    for (i in key) {
+    data <- data %>%
+      filter(key %in% key10) %>% 
+      arrange(key, date)
+    
+    plot3 <- plot_ly(hoverinfo = "name + x + y")
+    
+    for (i in key10) {
       plot3 <- plot3 %>%
         add_trace(x = data$date[data$key == i],
                   y = data$value[data$key == i],
@@ -579,22 +707,46 @@ server <- function(input, output, session) {
   
   ## plot4
   plot4 <- reactive({
-    if (is.null(moleculeData()))
+    if (is.null(moleculeData()) | input$measure == "Price" | (input$measure != "Price" & is.null(input$index)))
       return(NULL)
     
     period_date <- sort(unique(substr(gsub("-", "", ymd(paste0(input$ym, "01")) - months(0:(as.numeric(input$period) - 1))), 1, 6)))
     
-    data <- moleculeData() %>% 
-      filter(date == period_date, `Molecule En` != "Market") %>% 
-      select(date, `Molecule En`, input$index) %>% 
-      arrange(`Molecule En`, date)
+    data <- groupData() %>% 
+      filter(date == period_date, `Display Name En` != "Market") %>% 
+      select(date, `Display Name En`, `Sales(Mn)`) %>% 
+      mutate(`Display Name En` = as.vector(`Display Name En`)) %>% 
+      arrange(`Display Name En`, date)
     colnames(data) <- c("date", "key", "value")
     
-    key <- unique(data$key)
+    data1 <- data %>% 
+      filter(date == input$ym) %>% 
+      arrange(-value) %>% 
+      filter(row_number() <= 10)
     
-    plot4 <- plot_ly(hoverinfo = "name + x + text")
+    if (length(data1$key) <= 10) {
+      key10 <- data1$key
+    } else {
+      key10 <- c(data1$key, "others")
+    }
     
-    for (i in key) {
+    data2 <- data.frame(key = key10) %>% 
+      mutate(no = row_number())
+    
+    data <- data %>% 
+      mutate(key = ifelse(key %in% key10,
+                          key,
+                          "others")) %>% 
+      group_by(key, date) %>% 
+      summarise(value = sum(value)) %>% 
+      ungroup() %>% 
+      left_join(data2, by = "key") %>% 
+      arrange(no, date) %>% 
+      select(date, key, value)
+    
+    plot4 <- plot_ly(hoverinfo = "name + x + y")
+    
+    for (i in key10) {
       plot4 <- plot4 %>% 
         add_bars(x = data$date[data$key == i],
                  y = data$value[data$key == i],
@@ -616,7 +768,7 @@ server <- function(input, output, session) {
   
   ## table4
   table4 <- reactive({
-    if (is.null(moleculeData()))
+    if (is.null(moleculeData()) | input$measure == "Price" | is.null(input$index))
       return(NULL)
     
     data <- moleculeData() %>% 
@@ -625,22 +777,49 @@ server <- function(input, output, session) {
            variable.name = "Index",
            value.name = "value") %>% 
       dcast(`Molecule En` + `Molecule Cn` + `Index` ~ `date`) %>% 
+      filter(Index %in% input$index) %>% 
       arrange(Index, `Molecule Cn`)
     
     table4 <- datatable(
-      data
+      data,
+      rownames = FALSE,
+      extensions = c("Buttons"),
+      options = list(
+        autoWidth = TRUE,
+        dom = "<'bottom'>Bfrtpl",
+        paging = TRUE,
+        scrollX = FALSE,
+        buttons = I("colvis"),
+        columnDefs = list(
+          list(
+            # width = "200px",
+            className = "dt-center",
+            targets = "_all"
+          ),
+          list(
+            visible = FALSE,
+            targets = c(1)
+          )
+        ),
+        initComplete = JS(
+          "function(settings, json) {",
+          "$(this.api().table().header()).css({'background-color': '#000', 'color': '#fff'});",
+          "}"
+        )
+      )
     )
     
-    table4
+    return(list(data = data,
+                table = table4))
   })
   
   output$table4 <- renderDataTable({
-    table4()
+    table4()$table
   })
   
   ##---- by brand ----
-  brandData <- reactive({
-    if (is.null(raw()) | is.null(mapping()))
+  brandData <- eventReactive(input$go, {
+    if (is.null(raw()) | is.null(mapping()) | is.null(input$molecule))
       return(NULL)
     
     data <- work_out(
@@ -667,7 +846,7 @@ server <- function(input, output, session) {
   
   ## table5
   table5 <- reactive({
-    if (is.null(brandData()))
+    if (is.null(brandData()) | input$measure == "Price")
       return(NULL)
     
     data <- brandData() %>% 
@@ -677,35 +856,77 @@ server <- function(input, output, session) {
              `Sales(Mn)`, `Growth%`, `Share%`, `share_delta%`, `EI`)
     
     table5 <- datatable(
-      data
+      data,
+      rownames = FALSE,
+      extensions = c("Buttons"),
+      options = list(
+        autoWidth = TRUE,
+        dom = "<'bottom'>Bfrtpl",
+        paging = TRUE,
+        scrollX = FALSE,
+        buttons = I("colvis"),
+        columnDefs = list(
+          list(
+            # width = "200px",
+            className = "dt-center",
+            targets = "_all"
+          ),
+          list(
+            visible = FALSE,
+            targets = c(1, 3, 5, 7, 9)
+          )
+        ),
+        initComplete = JS(
+          "function(settings, json) {",
+          "$(this.api().table().header()).css({'background-color': '#000', 'color': '#fff'});",
+          "}"
+        )
+      )
     )
     
-    table5
+    return(list(data = data,
+                table = table5))
   })
   
   output$table5 <- renderDataTable({
-    table5()
+    table5()$table
   })
   
   
   ## plot5
   plot5 <- reactive({
-    if (is.null(brandData()))
+    if (is.null(brandData()) | (input$measure != "Price" & is.null(input$index)))
       return(NULL)
     
     period_date <- sort(unique(substr(gsub("-", "", ymd(paste0(input$ym, "01")) - months(0:(as.numeric(input$period) - 1))), 1, 6)))
     
-    data <- brandData() %>% 
-      filter(date == period_date, `Brand En` != "Total") %>% 
-      select(date, `Brand En`, input$index) %>% 
-      arrange(`Brand En`, date)
+    if (input$measure == "Price") {
+      data <- brandData() %>% 
+        filter(date == period_date) %>% 
+        select(date, `Display Name`, "price")
+      
+    } else {
+      data <- brandData() %>% 
+        filter(date == period_date, `Brand En` != "Total") %>% 
+        select(date, `Brand En`, `Sales(Mn)`)
+    }
+    
     colnames(data) <- c("date", "key", "value")
     
-    key <- unique(data$key)
+    data1 <- data %>% 
+      filter(date == input$ym) %>% 
+      arrange(-value) %>% 
+      filter(row_number() <= 10)
     
-    plot5 <- plot_ly(hoverinfo = "name + x + text")
+    key10 <- unique(data1$key)
     
-    for (i in key) {
+    data <- data %>%
+      filter(key %in% key10) %>% 
+      arrange(key, date)
+    
+    plot5 <- plot_ly(hoverinfo = "name + x + y")
+    
+    for (i in key10) {
       plot5 <- plot5 %>%
         add_trace(x = data$date[data$key == i],
                   y = data$value[data$key == i],
@@ -723,22 +944,46 @@ server <- function(input, output, session) {
   
   ## plot6
   plot6 <- reactive({
-    if (is.null(brandData()))
+    if (is.null(brandData()) | input$measure == "Price" | (input$measure != "Price" & is.null(input$index)))
       return(NULL)
     
     period_date <- sort(unique(substr(gsub("-", "", ymd(paste0(input$ym, "01")) - months(0:(as.numeric(input$period) - 1))), 1, 6)))
     
-    data <- brandData() %>% 
-      filter(date == period_date, `Brand En` != "Total") %>% 
-      select(date, `Brand En`, input$index) %>% 
-      arrange(`Brand En`, date)
+    data <- groupData() %>% 
+      filter(date == period_date, `Display Name En` != "Market") %>% 
+      select(date, `Display Name En`, `Sales(Mn)`) %>% 
+      mutate(`Display Name En` = as.vector(`Display Name En`)) %>% 
+      arrange(`Display Name En`, date)
     colnames(data) <- c("date", "key", "value")
     
-    key <- unique(data$key)
+    data1 <- data %>% 
+      filter(date == input$ym) %>% 
+      arrange(-value) %>% 
+      filter(row_number() <= 10)
     
-    plot6 <- plot_ly(hoverinfo = "name + x + text")
+    if (length(data1$key) <= 10) {
+      key10 <- data1$key
+    } else {
+      key10 <- c(data1$key, "others")
+    }
     
-    for (i in key) {
+    data2 <- data.frame(key = key10) %>% 
+      mutate(no = row_number())
+    
+    data <- data %>% 
+      mutate(key = ifelse(key %in% key10,
+                          key,
+                          "others")) %>% 
+      group_by(key, date) %>% 
+      summarise(value = sum(value)) %>% 
+      ungroup() %>% 
+      left_join(data2, by = "key") %>% 
+      arrange(no, date) %>% 
+      select(date, key, value)
+    
+    plot6 <- plot_ly(hoverinfo = "name + x + y")
+    
+    for (i in key10) {
       plot6 <- plot6 %>% 
         add_bars(x = data$date[data$key == i],
                  y = data$value[data$key == i],
@@ -760,7 +1005,7 @@ server <- function(input, output, session) {
   
   ## table6
   table6 <- reactive({
-    if (is.null(brandData()))
+    if (is.null(brandData()) | input$measure == "Price" | is.null(input$index))
       return(NULL)
     
     data <- brandData() %>% 
@@ -769,19 +1014,120 @@ server <- function(input, output, session) {
            variable.name = "Index",
            value.name = "value") %>% 
       dcast(`Brand En` + `Brand Cn` + `Index` ~ `date`) %>% 
+      filter(Index %in% input$index) %>% 
       arrange(Index)
     
     table6 <- datatable(
-      data
+      data,
+      rownames = FALSE,
+      extensions = c("Buttons"),
+      options = list(
+        autoWidth = TRUE,
+        dom = "<'bottom'>Bfrtpl",
+        paging = TRUE,
+        scrollX = FALSE,
+        buttons = I("colvis"),
+        columnDefs = list(
+          list(
+            # width = "200px",
+            className = "dt-center",
+            targets = "_all"
+          ),
+          list(
+            visible = FALSE,
+            targets = c(1)
+          )
+        ),
+        initComplete = JS(
+          "function(settings, json) {",
+          "$(this.api().table().header()).css({'background-color': '#000', 'color': '#fff'});",
+          "}"
+        )
+      )
     )
     
-    table6
+    return(list(data = data,
+                table = table6))
   })
   
   output$table6 <- renderDataTable({
-    table6()
+    table6()$table
   })
   
+  ##---- download ----
+  output$download <- downloadHandler(
+    filename = function() {
+      paste0(input$metric, "_", input$ym, "_", input$period, "_", input$market, "_", input$atc2, "_", 
+             input$atc3, "_", input$measure, "_", input$index, "_", input$region, "_", input$province, "_", 
+             input$city, "_", input$channel, "_", input$molecule, ".xlsx")
+    },
+    
+    content = function(file) {
+      wb <- createWorkbook()
+      
+      addWorksheet(wb, "Summary by group")
+      writeDataTable(
+        wb,
+        sheet = "Summary by group",
+        x = table1()$data,
+        withFilter = FALSE,
+        rowNames = FALSE,
+        colNames = TRUE
+      )
+      
+      addWorksheet(wb, "Detail by group")
+      writeDataTable(
+        wb,
+        sheet = "Detail by group",
+        x = table2()$data,
+        withFilter = FALSE,
+        rowNames = FALSE,
+        colNames = TRUE
+      )
+      
+      addWorksheet(wb, "Summary by molecule")
+      writeDataTable(
+        wb,
+        sheet = "Summary by molecule",
+        x = table3()$data,
+        withFilter = FALSE,
+        rowNames = FALSE,
+        colNames = TRUE
+      )
+      
+      addWorksheet(wb, "Detail by molecule")
+      writeDataTable(
+        wb,
+        sheet = "Detail by molecule",
+        x = table4()$data,
+        withFilter = FALSE,
+        rowNames = FALSE,
+        colNames = TRUE
+      )
+      
+      addWorksheet(wb, "Summary by brand")
+      writeDataTable(
+        wb,
+        sheet = "Summary by brand",
+        x = table5()$data,
+        withFilter = FALSE,
+        rowNames = FALSE,
+        colNames = TRUE
+      )
+      
+      addWorksheet(wb, "Detail by brand")
+      writeDataTable(
+        wb,
+        sheet = "Detail by brand",
+        x = table6()$data,
+        withFilter = FALSE,
+        rowNames = FALSE,
+        colNames = TRUE
+      )
+      
+      saveWorkbook(wb, file, overwrite = TRUE)
+    }
+  )
 }
 
 
