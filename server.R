@@ -31,7 +31,7 @@ library(shinyWidgets)
 
 ##---- load functions ----
 source("./functions/functions.R", encoding = "UTF-8")
-load("./data/mappingData.RData")
+# load("./data/mappingData.RData")
 
 ##---- options ----
 options(shiny.maxRequestSize = 1000 * 1024 ^ 2,
@@ -64,7 +64,7 @@ server <- function(input, output, session) {
     inFile.raw <- input$mapping
     mapping <- read_excel(
       inFile.raw$datapath,
-      sheet = 1,
+      sheet = "Mapping",
       na = "NA"
     ) %>% 
       setDF()
@@ -73,6 +73,21 @@ server <- function(input, output, session) {
     mapping
   })
   
+  order <- reactive({
+    if (is.null(input$mapping))
+      return(NULL)
+    
+    inFile.raw <- input$mapping
+    order <- read_excel(
+      inFile.raw$datapath,
+      sheet = "Order",
+      na = "NA"
+    ) %>% 
+      setDF()
+    colnames(order) <- tolower(colnames(order))
+    
+    order
+  })
   
   ##---- input ----
   ## year-month
@@ -374,7 +389,7 @@ server <- function(input, output, session) {
       input_channel = input$channel,
       input_molecule = input$molecule,
       output_type = "by group",
-      mapping_table_list = en_cn
+      mapping_table_list = order()
     )
     
     data
@@ -401,8 +416,11 @@ server <- function(input, output, session) {
         buttons = I("colvis"),
         columnDefs = list(
           list(
-            # width = "200px",
             className = "dt-center",
+            targets = "_all"
+          ),
+          list(
+            width = "200px",
             targets = "_all"
           ),
           list(
@@ -416,7 +434,17 @@ server <- function(input, output, session) {
           "}"
         )
       )
-    )
+    ) %>% 
+      formatRound(
+        c(
+          "Sales(Mn)",
+          "Growth%",
+          "Share%",
+          "share_delta%",
+          "EI"
+        ),
+        2
+      )
     
     return(list(data = data,
                 table = table1))
@@ -438,22 +466,39 @@ server <- function(input, output, session) {
       data <- groupData() %>% 
         filter(date == period_date) %>% 
         select(date, `Display Name`, "price") %>% 
+        mutate(`Display Name` = as.vector(`Display Name`)) %>% 
         arrange(`Display Name`, date)
       
     } else {
       data <- groupData() %>% 
         filter(date == period_date, `Display Name En` != "Market") %>% 
         select(date, `Display Name En`, `Sales(Mn)`) %>% 
+        mutate(`Display Name En` = as.vector(`Display Name En`)) %>% 
         arrange(`Display Name En`, date)
     }
     
     colnames(data) <- c("date", "key", "value")
     
-    key <- unique(data$key)
-
+    data1 <- data %>% 
+      filter(date == input$ym) %>% 
+      arrange(-value) %>% 
+      filter(row_number() <= 10)
+    
+    key10 <- unique(data1$key)
+    
+    data2 <- data.frame(key = key10) %>% 
+      mutate(no = row_number())
+    
+    data <- data %>% 
+      filter(key %in% key10) %>% 
+      left_join(data2, by = "key") %>% 
+      arrange(no, date) %>% 
+      mutate(value = round(value, 2)) %>% 
+      select(date, key, value)
+    
     plot1 <- plot_ly(hoverinfo = "name + x + y")
 
-    for (i in key) {
+    for (i in key10) {
       plot1 <- plot1 %>%
         add_trace(x = data$date[data$key == i],
                   y = data$value[data$key == i],
@@ -461,6 +506,23 @@ server <- function(input, output, session) {
                   mode = "lines",
                   name = i)
     }
+    
+    plot1 <- plot1 %>% 
+      layout(
+        showlegend = TRUE,
+        xaxis = list(
+          zeroline = FALSE,
+          title = "",
+          showline = TRUE,
+          mirror = "ticks"
+        ),
+        yaxis = list(
+          zeroline = FALSE,
+          title = paste0(input$metric, "-", input$measure),
+          showline = TRUE,
+          mirror = "ticks"
+        )
+      )
     
     plot1
   })
@@ -488,10 +550,10 @@ server <- function(input, output, session) {
       arrange(-value) %>% 
       filter(row_number() <= 10)
     
-    if (length(data1$key) <= 10) {
-      key10 <- data1$key
+    if (length(unique(data1$key)) <= 10) {
+      key10 <- unique(data1$key)
     } else {
-      key10 <- c(data1$key, "others")
+      key10 <- c(unique(data1$key), "others")
     }
     
     data2 <- data.frame(key = key10) %>% 
@@ -506,22 +568,38 @@ server <- function(input, output, session) {
       ungroup() %>% 
       left_join(data2, by = "key") %>% 
       arrange(no, date) %>% 
+      mutate(value = round(value, 2)) %>% 
       select(date, key, value)
     
-    plot2 <- plot_ly(hoverinfo = "name + x + y")
+    plot2 <- plot_ly(hoverinfo = "name+text")
     
     for (i in key10) {
       plot2 <- plot2 %>% 
         add_bars(x = data$date[data$key == i],
                  y = data$value[data$key == i],
                  type = "bar",
-                 text = data$value[data$key == i],
+                 text = paste0("(", data$date[data$key == i], ", ", data$value[data$key == i], ")"),
                  textposition = "inside",
                  name = i)
     }
     
-    plot2 <- plot2 %>%
-      layout(barmode = "stack")
+    plot2 <- plot2 %>% 
+      layout(
+        barmode = "stack",
+        showlegend = TRUE,
+        xaxis = list(
+          zeroline = FALSE,
+          title = "",
+          showline = TRUE,
+          mirror = "ticks"
+        ),
+        yaxis = list(
+          zeroline = FALSE,
+          title = paste0(input$metric, "-", input$measure),
+          showline = TRUE,
+          mirror = "ticks"
+        )
+      )
     
     plot2
   })
@@ -550,14 +628,17 @@ server <- function(input, output, session) {
       extensions = c("Buttons"),
       options = list(
         autoWidth = TRUE,
+        scrollX = FALSE,
         dom = "<'bottom'>Bfrtpl",
         paging = TRUE,
-        scrollX = FALSE,
         buttons = I("colvis"),
         columnDefs = list(
           list(
-            # width = "200px",
             className = "dt-center",
+            targets = "_all"
+          ),
+          list(
+            width = "200px",
             targets = "_all"
           ),
           list(
@@ -602,7 +683,7 @@ server <- function(input, output, session) {
       input_channel = input$channel,
       input_molecule = input$molecule,
       output_type = "by molecule",
-      mapping_table_list = en_cn
+      mapping_table_list = order()
     )
     
     data
@@ -630,8 +711,11 @@ server <- function(input, output, session) {
         buttons = I("colvis"),
         columnDefs = list(
           list(
-            # width = "200px",
             className = "dt-center",
+            targets = "_all"
+          ),
+          list(
+            width = "200px",
             targets = "_all"
           ),
           list(
@@ -645,7 +729,17 @@ server <- function(input, output, session) {
           "}"
         )
       )
-    )
+    ) %>% 
+      formatRound(
+        c(
+          "Sales(Mn)",
+          "Growth%",
+          "Share%",
+          "share_delta%",
+          "EI"
+        ),
+        2
+      )
     
     return(list(data = data,
                 table = table3))
@@ -666,12 +760,16 @@ server <- function(input, output, session) {
     if (input$measure == "Price") {
       data <- moleculeData() %>% 
         filter(date == period_date) %>% 
-        select(date, `Display Name`, "price")
+        select(date, `Display Name`, "price") %>% 
+        mutate(`Display Name` = as.vector(`Display Name`)) %>% 
+        arrange(`Display Name`, date)
       
     } else {
       data <- moleculeData() %>% 
         filter(date == period_date, `Molecule En` != "Total") %>% 
-        select(date, `Molecule En`, `Sales(Mn)`)
+        select(date, `Molecule En`, `Sales(Mn)`) %>% 
+        mutate(`Molecule En` = as.vector(`Molecule En`)) %>% 
+        arrange(`Molecule En`, date)
     }
     
     colnames(data) <- c("date", "key", "value")
@@ -683,9 +781,15 @@ server <- function(input, output, session) {
     
     key10 <- unique(data1$key)
     
-    data <- data %>%
+    data2 <- data.frame(key = key10) %>% 
+      mutate(no = row_number())
+    
+    data <- data %>% 
       filter(key %in% key10) %>% 
-      arrange(key, date)
+      left_join(data2, by = "key") %>% 
+      arrange(no, date) %>% 
+      mutate(value = round(value, 2)) %>% 
+      select(date, key, value)
     
     plot3 <- plot_ly(hoverinfo = "name + x + y")
     
@@ -697,6 +801,23 @@ server <- function(input, output, session) {
                   mode = "lines",
                   name = i)
     }
+    
+    plot3 <- plot3 %>% 
+      layout(
+        showlegend = TRUE,
+        xaxis = list(
+          zeroline = FALSE,
+          title = "",
+          showline = TRUE,
+          mirror = "ticks"
+        ),
+        yaxis = list(
+          zeroline = FALSE,
+          title = paste0(input$metric, "-", input$measure),
+          showline = TRUE,
+          mirror = "ticks"
+        )
+      )
     
     plot3
   })
@@ -712,11 +833,11 @@ server <- function(input, output, session) {
     
     period_date <- sort(unique(substr(gsub("-", "", ymd(paste0(input$ym, "01")) - months(0:(as.numeric(input$period) - 1))), 1, 6)))
     
-    data <- groupData() %>% 
-      filter(date == period_date, `Display Name En` != "Market") %>% 
-      select(date, `Display Name En`, `Sales(Mn)`) %>% 
-      mutate(`Display Name En` = as.vector(`Display Name En`)) %>% 
-      arrange(`Display Name En`, date)
+    data <- moleculeData() %>% 
+      filter(date == period_date, `Molecule En` != "Market") %>% 
+      select(date, `Molecule En`, `Sales(Mn)`) %>% 
+      mutate(`Molecule En` = as.vector(`Molecule En`)) %>% 
+      arrange(`Molecule En`, date)
     colnames(data) <- c("date", "key", "value")
     
     data1 <- data %>% 
@@ -724,10 +845,10 @@ server <- function(input, output, session) {
       arrange(-value) %>% 
       filter(row_number() <= 10)
     
-    if (length(data1$key) <= 10) {
-      key10 <- data1$key
+    if (length(unique(data1$key)) <= 10) {
+      key10 <- unique(data1$key)
     } else {
-      key10 <- c(data1$key, "others")
+      key10 <- c(unique(data1$key), "others")
     }
     
     data2 <- data.frame(key = key10) %>% 
@@ -742,22 +863,38 @@ server <- function(input, output, session) {
       ungroup() %>% 
       left_join(data2, by = "key") %>% 
       arrange(no, date) %>% 
+      mutate(value = round(value, 2)) %>% 
       select(date, key, value)
     
-    plot4 <- plot_ly(hoverinfo = "name + x + y")
+    plot4 <- plot_ly(hoverinfo = "name+text")
     
     for (i in key10) {
       plot4 <- plot4 %>% 
         add_bars(x = data$date[data$key == i],
                  y = data$value[data$key == i],
                  type = "bar",
-                 text = data$value[data$key == i],
+                 text = paste0("(", data$date[data$key == i], ", ", data$value[data$key == i], ")"),
                  textposition = "inside",
                  name = i)
     }
     
-    plot4 <- plot4 %>%
-      layout(barmode = "stack")
+    plot4 <- plot4 %>% 
+      layout(
+        barmode = "stack",
+        showlegend = TRUE,
+        xaxis = list(
+          zeroline = FALSE,
+          title = "",
+          showline = TRUE,
+          mirror = "ticks"
+        ),
+        yaxis = list(
+          zeroline = FALSE,
+          title = paste0(input$metric, "-", input$measure),
+          showline = TRUE,
+          mirror = "ticks"
+        )
+      )
     
     plot4
   })
@@ -838,7 +975,7 @@ server <- function(input, output, session) {
       input_channel = input$channel,
       input_molecule = input$molecule,
       output_type = "by brand",
-      mapping_table_list = en_cn
+      mapping_table_list = order()
     )
     
     data
@@ -867,8 +1004,11 @@ server <- function(input, output, session) {
         buttons = I("colvis"),
         columnDefs = list(
           list(
-            # width = "200px",
             className = "dt-center",
+            targets = "_all"
+          ),
+          list(
+            width = "200px",
             targets = "_all"
           ),
           list(
@@ -882,7 +1022,17 @@ server <- function(input, output, session) {
           "}"
         )
       )
-    )
+    ) %>% 
+      formatRound(
+        c(
+          "Sales(Mn)",
+          "Growth%",
+          "Share%",
+          "share_delta%",
+          "EI"
+        ),
+        2
+      )
     
     return(list(data = data,
                 table = table5))
@@ -903,12 +1053,16 @@ server <- function(input, output, session) {
     if (input$measure == "Price") {
       data <- brandData() %>% 
         filter(date == period_date) %>% 
-        select(date, `Display Name`, "price")
+        select(date, `Display Name`, "price") %>% 
+        mutate(`Display Name` = as.vector(`Display Name`)) %>% 
+        arrange(`Display Name`, date)
       
     } else {
       data <- brandData() %>% 
         filter(date == period_date, `Brand En` != "Total") %>% 
-        select(date, `Brand En`, `Sales(Mn)`)
+        select(date, `Brand En`, `Sales(Mn)`) %>% 
+        mutate(`Brand En` = as.vector(`Brand En`)) %>% 
+        arrange(`Brand En`, date)
     }
     
     colnames(data) <- c("date", "key", "value")
@@ -920,9 +1074,15 @@ server <- function(input, output, session) {
     
     key10 <- unique(data1$key)
     
-    data <- data %>%
+    data2 <- data.frame(key = key10) %>% 
+      mutate(no = row_number())
+    
+    data <- data %>% 
       filter(key %in% key10) %>% 
-      arrange(key, date)
+      left_join(data2, by = "key") %>% 
+      arrange(no, date) %>% 
+      mutate(value = round(value, 2)) %>% 
+      select(date, key, value)
     
     plot5 <- plot_ly(hoverinfo = "name + x + y")
     
@@ -934,6 +1094,23 @@ server <- function(input, output, session) {
                   mode = "lines",
                   name = i)
     }
+    
+    plot5 <- plot5 %>% 
+      layout(
+        showlegend = TRUE,
+        xaxis = list(
+          zeroline = FALSE,
+          title = "",
+          showline = TRUE,
+          mirror = "ticks"
+        ),
+        yaxis = list(
+          zeroline = FALSE,
+          title = paste0(input$metric, "-", input$measure),
+          showline = TRUE,
+          mirror = "ticks"
+        )
+      )
     
     plot5
   })
@@ -949,11 +1126,11 @@ server <- function(input, output, session) {
     
     period_date <- sort(unique(substr(gsub("-", "", ymd(paste0(input$ym, "01")) - months(0:(as.numeric(input$period) - 1))), 1, 6)))
     
-    data <- groupData() %>% 
-      filter(date == period_date, `Display Name En` != "Market") %>% 
-      select(date, `Display Name En`, `Sales(Mn)`) %>% 
-      mutate(`Display Name En` = as.vector(`Display Name En`)) %>% 
-      arrange(`Display Name En`, date)
+    data <- brandData() %>% 
+      filter(date == period_date, `Brand En` != "Market") %>% 
+      select(date, `Brand En`, `Sales(Mn)`) %>% 
+      mutate(`Brand En` = as.vector(`Brand En`)) %>% 
+      arrange(`Brand En`, date)
     colnames(data) <- c("date", "key", "value")
     
     data1 <- data %>% 
@@ -961,10 +1138,10 @@ server <- function(input, output, session) {
       arrange(-value) %>% 
       filter(row_number() <= 10)
     
-    if (length(data1$key) <= 10) {
-      key10 <- data1$key
+    if (length(unique(data1$key)) <= 10) {
+      key10 <- unique(data1$key)
     } else {
-      key10 <- c(data1$key, "others")
+      key10 <- c(unique(data1$key), "others")
     }
     
     data2 <- data.frame(key = key10) %>% 
@@ -979,22 +1156,38 @@ server <- function(input, output, session) {
       ungroup() %>% 
       left_join(data2, by = "key") %>% 
       arrange(no, date) %>% 
+      mutate(value = round(value, 2)) %>% 
       select(date, key, value)
     
-    plot6 <- plot_ly(hoverinfo = "name + x + y")
+    plot6 <- plot_ly(hoverinfo = "name+text")
     
     for (i in key10) {
       plot6 <- plot6 %>% 
         add_bars(x = data$date[data$key == i],
                  y = data$value[data$key == i],
                  type = "bar",
-                 text = data$value[data$key == i],
+                 text = paste0("(", data$date[data$key == i], ", ", data$value[data$key == i], ")"),
                  textposition = "inside",
                  name = i)
     }
     
-    plot6 <- plot6 %>%
-      layout(barmode = "stack")
+    plot6 <- plot6 %>% 
+      layout(
+        barmode = "stack",
+        showlegend = TRUE,
+        xaxis = list(
+          zeroline = FALSE,
+          title = "",
+          showline = TRUE,
+          mirror = "ticks"
+        ),
+        yaxis = list(
+          zeroline = FALSE,
+          title = paste0(input$metric, "-", input$measure),
+          showline = TRUE,
+          mirror = "ticks"
+        )
+      )
     
     plot6
   })

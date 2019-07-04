@@ -38,11 +38,11 @@ ui <- dashboardPage(
         conditionalPanel(
           condition = "input.measure != 'Price'",
           column(12, selectInput(inputId = "index", label = "Index", choices = c("Sales(Mn)", "Share%", "Growth%", "share_delta%", "EI"), 
-                                 selected = "Sales(Mn)", multiple = TRUE))
+                                 selected = NULL, multiple = TRUE))
         ),
         column(12, selectInput(inputId = "region", label = "Region", choices = "")),
         column(12, selectInput(inputId = "province", label = "Province", choices = "")),
-        column(12, selectInput(inputId = "city", label = "Ciyt", choices = "")),
+        column(12, selectInput(inputId = "city", label = "City", choices = "")),
         column(12, selectInput(inputId = "channel", label = "Channel", choices = "")),
         column(12, selectInput(inputId = "molecule", label = "Molecule", choices = "", selected = NULL, multiple = TRUE)),
         column(12, actionButton(inputId = "go", label = "Go", width = "200px")),
